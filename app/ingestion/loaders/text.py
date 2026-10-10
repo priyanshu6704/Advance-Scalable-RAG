@@ -1,6 +1,6 @@
 import logfire
 
-def parse_text(file_path:str)->str;
+def parse_text(file_path:str)->str:
     with logfire.span("Text Parsing",filename=file_path):
         try:
             with open(file_path,"r",encoding='utf-8',errors='ignore'):
