@@ -3,7 +3,7 @@ import logfire
 
 def chunk_text(text:str,chunk_size:int=1500)->List[str]:
     with logfire.span("Text chunking",text_length=len(text)):
-        if not text.stip():
+        if not text.strip():
             return []
 
         paragraph=text.split("\n\n")

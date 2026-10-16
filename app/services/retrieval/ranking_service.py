@@ -38,7 +38,7 @@ def rerank_documents(query:str,documents:list[str],top_n:int=5)->list[str]:
 
         duration=time.time()-start_time
         top_score=results[0]['score'] if results else 'N/A'
-        logfire.info(f'[Reranker] done in {duration.2f}s. Top seamntic score:{top_score}')
+        logfire.info(f'[Reranker] done in {duration:.2f}s. Top seamntic score:{top_score}')
         return reranked_docs
 
     except Exception as e:
