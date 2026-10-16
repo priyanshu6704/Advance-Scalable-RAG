@@ -1,23 +1,24 @@
 from app.agents.state import AgentState
+from app.gateway import get_langchain_llm
 import logfire
-from langchain_groq import ChatGroq
-from app.config import settings
 
-llm=ChatGroq(api_key=settings.GROQ_API_KEY,model=settings.GROQ_MODEL,temperature=0)
+# Portkey-backed LLM: fallback + cache + retry — same .invoke() interface as ChatGroq
+llm = get_langchain_llm(feature="planner")
 
-def planner_node(state:AgentState):
+def planner_node(state: AgentState):
     """
-    The palnner determined if search is neede based on Entire conversation.
+    The Planner determines if a search is needed based on the ENTIRE conversation.
     """
-    history=""
+    # Get the conversation history (excluding the latest message)
+    history = ""
     for msg in state["messages"][:-1]:
-        role="User" if msg["role"]=="user" else "Assistance"
-        history+=f"{role}: {msg['content']}\n"
-
-        user_message=state["messages"][-1]["content"] if state["messages"] else ""
-
-        prompt=f"""
-         You are an intelligent Assistant Planner. 
+        role = "User" if msg["role"] == "user" else "Assistant"
+        history += f"{role}: {msg['content']}\n"
+    
+    user_message = state["messages"][-1]["content"] if state["messages"] else ""
+    
+    prompt = f"""
+    You are an intelligent Assistant Planner. 
     Analyze the conversation history and the latest user message.
     
     CONVERSATION HISTORY:
@@ -31,21 +32,21 @@ def planner_node(state:AgentState):
     2. If it is a technical question about Kubernetes, Intel, or Networking that requires fresh documentation, output a refined search query.
     
     Output ONLY 'CONVERSATIONAL' or the search query.
-"""
-        with logfire.span("Planner Decision"):
-            decision=llm.invoke(prompt).content.strip()
-            logfire.info(f"Intent identified: {decision}")
-
-        if decision=="CONVERSATIONAL":
-            return {
-                "current_query":"CONVERSATIONAL",
-                "status":"Handling conversationally (using memory)...",
-                "plan": ["Intent: Conversational/Memory","Retriveral: Skipped"]
-            }
-
+    """
+    
+    with logfire.span("🧠 Planner Decision"):
+        decision = llm.invoke(prompt).content.strip()
+        logfire.info(f"Intent identified: {decision}")
+    
+    if decision == "CONVERSATIONAL":
         return {
-            "current_query":decision,
-            "status":f"Technical research needed, Searching for : {decision}",
-            "plan":["Intent: Technical", f"Search Term: {decision}"]
+            "current_query": "CONVERSATIONAL",
+            "status": "Handling conversationally (using memory)...",
+            "plan": ["Intent: Conversational/Memory", "Retrieval: Skipped"]
         }
     
+    return {
+        "current_query": decision,
+        "status": f"Technical research needed. Searching for: {decision}",
+        "plan": ["Intent: Technical", f"Search Term: {decision}"]
+    }

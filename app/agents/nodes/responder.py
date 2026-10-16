@@ -1,21 +1,22 @@
 import logfire
 from app.agents.state import AgentState
-from app.config import settings
-from langchain_groq import ChatGroq
+from app.gateway import portkey_client, extract_cache_status
 
-llm=ChatGroq(api_key=settings.GROQ_API_KEY,model=settings.GROQ_MODEL,temperature=0.1)
 
 def generate_node(state: AgentState):
     """
-    Sysnthesizes a response using bth document and conversation history.
+    Synthesizes a response using both Documentation Context AND Conversation History.
+    Uses the native Portkey client (not LangChain) so we can read the
+    x-portkey-cache-status response header and surface Cache: Hit in the UI.
     """
-    query=state['current_query']
-    history_str=""
-    for msg in state['messages'][:-1]:
-        role="User" if msg["role"]=='user' else "Assistant"
-        history_str+=f"{role}: {msg['content']}\n"
+    query = state["current_query"]
 
-    user_msg=state['messages'][-1]["content"] if state['messages'] else ""
+    history_str = ""
+    for msg in state["messages"][:-1]:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        history_str += f"{role}: {msg['content']}\n"
+
+    user_msg = state["messages"][-1]["content"] if state["messages"] else ""
 
     if query == "CONVERSATIONAL":
         logfire.info("Generating conversational response using memory.")
@@ -57,15 +58,30 @@ def generate_node(state: AgentState):
 
     with logfire.span("✍️ LLM Synthesis"):
         try:
-            content=llm.invoke(prompt).content
-            logfire.info("Response synthesis via LLM")
-            return {
-                "final_answer":content,
-                "status":"Response generated",
-                "plan":state["plan"],
-                "messages":[{"role":"assistant","content":content}]
+            response = portkey_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            content = response.choices[0].message.content
+            cache_status = extract_cache_status(response)
+            is_cache_hit = cache_status == "HIT"
 
+            if is_cache_hit:
+                logfire.info("⚡ Gateway Cache Hit — response served from Portkey cache.")
+                plan_update = state["plan"] + ["Cache: Hit ⚡"]
+                status = "Cache hit — instant response."
+            else:
+                logfire.info("✅ Response synthesised via LLM.")
+                plan_update = state["plan"]
+                status = "Response generated."
+
+            return {
+                "final_answer": content,
+                "status": status,
+                "plan": plan_update,
+                "messages": [{"role": "assistant", "content": content}]
             }
+
         except Exception as e:
-            logfire.error(f"LLm Generation failed : {e}")
+            logfire.error(f"LLM Generation failed: {e}")
             raise e
